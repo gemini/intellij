@@ -15,15 +15,17 @@
  */
 package com.google.idea.blaze.base.run.producers;
 
+import com.google.idea.blaze.base.bazel.BuildSystemProvider;
 import com.google.idea.blaze.base.command.BlazeCommandName;
-import com.google.idea.blaze.base.lang.buildfile.search.BlazePackage;
 import com.google.idea.blaze.base.model.primitives.TargetExpression;
 import com.google.idea.blaze.base.model.primitives.WorkspacePath;
 import com.google.idea.blaze.base.model.primitives.WorkspaceRoot;
+import com.google.idea.blaze.base.settings.Blaze;
 import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import java.io.File;
 import javax.annotation.Nullable;
 
@@ -34,24 +36,52 @@ class AllInPackageTestContextProvider implements TestContextProvider {
   @Override
   public RunConfigurationContext getTestContext(ConfigurationContext context) {
     PsiElement location = context.getPsiLocation();
-    if (!(location instanceof PsiDirectory)) {
+    boolean recursive = false;
+    PsiDirectory dir = null;
+
+    // A BUILD file is selected.
+    if (location instanceof PsiFile) {
+      PsiFile file = (PsiFile) location;
+      if (!isBuildFile(context, file)) {
+        return null;
+      }
+      dir = file.getParent();
+      recursive = false;
+    }
+
+    // A directory is selected.
+    if (location instanceof PsiDirectory) {
+      dir = (PsiDirectory) location;
+      recursive = true;
+    }
+
+    if (dir == null) {
       return null;
     }
+
     WorkspaceRoot root = WorkspaceRoot.fromProject(context.getProject());
-    PsiDirectory dir = (PsiDirectory) location;
     if (!isInWorkspace(root, dir)) {
       return null;
     }
-    // only check if the directory itself is a blaze package
-    // TODO(brendandouglas): otherwise check off the EDT, and return PendingRunConfigurationContext?
-    return BlazePackage.isBlazePackage(dir) ? fromDirectory(root, dir) : null;
+
+    return fromDirectory(root, dir, recursive);
+  }
+
+  private static boolean isBuildFile(ConfigurationContext context, PsiFile file) {
+    BuildSystemProvider buildSystemProvider = Blaze.getBuildSystemProvider(context.getProject());
+    return buildSystemProvider.isBuildFile(file.getName());
   }
 
   @Nullable
-  private static RunConfigurationContext fromDirectory(WorkspaceRoot root, PsiDirectory dir) {
+  private static RunConfigurationContext fromDirectory(
+      WorkspaceRoot root, PsiDirectory dir, boolean recursive) {
     WorkspacePath packagePath = getWorkspaceRelativePath(root, dir.getVirtualFile());
     if (packagePath == null) {
       return null;
+    }
+    if (recursive) {
+      return RunConfigurationContext.fromKnownTarget(
+          TargetExpression.allFromPackageRecursive(packagePath), BlazeCommandName.TEST, dir);
     }
     return RunConfigurationContext.fromKnownTarget(
         TargetExpression.allFromPackageNonRecursive(packagePath), BlazeCommandName.TEST, dir);
