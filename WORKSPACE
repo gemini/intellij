@@ -217,8 +217,8 @@ http_archive(
 http_archive(
     name = "android_studio_2020_3",
     build_file = "@//intellij_platform_sdk:BUILD.android_studio203",
-    sha256 = "64eae480f415cad604e37d50154e4f8cedba0d13ee6a5b1e3e63019c1f81b915",
-    url = "https://dl.google.com/dl/android/studio/ide-zips/2020.3.1.4/android-studio-2020.3.1.4-linux.tar.gz",
+    sha256 = "52bf0b43238a95bc860a805047283d98927f16b69c3563588df6162fa5f4bd97",
+    url = "https://dl.google.com/dl/android/studio/ide-zips/2020.3.1.10/android-studio-2020.3.1.10-linux.tar.gz",
 )
 
 # LICENSE: Common Public License 1.0
@@ -376,8 +376,8 @@ http_archive(
     sha256 = "aa1ee19226f707d44bee44c720915199c20c84a23318bb0597ed4e5c873ccbd5",
     strip_prefix = "rules_proto-40298556293ae502c66579620a7ce867d5f57311",
     urls = [
-    "https://mirror.bazel.build/github.com/bazelbuild/rules_proto/archive/40298556293ae502c66579620a7ce867d5f57311.tar.gz",
-    "https://github.com/bazelbuild/rules_proto/archive/40298556293ae502c66579620a7ce867d5f57311.tar.gz",
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_proto/archive/40298556293ae502c66579620a7ce867d5f57311.tar.gz",
+        "https://github.com/bazelbuild/rules_proto/archive/40298556293ae502c66579620a7ce867d5f57311.tar.gz",
     ],
 )
 
