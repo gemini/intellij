@@ -44,17 +44,11 @@ import com.google.idea.blaze.base.scope.BlazeContext;
 import com.google.idea.blaze.base.scope.output.IssueOutput;
 import com.google.idea.blaze.base.scope.output.PrintOutput;
 import com.google.idea.blaze.base.scope.scopes.TimingScope.EventType;
-import com.google.idea.blaze.base.settings.Blaze;
-import com.google.idea.blaze.base.settings.BlazeImportSettings;
-import com.google.idea.blaze.base.settings.BlazeImportSettingsManager;
 import com.google.idea.blaze.base.sync.SyncMode;
-import com.google.idea.blaze.base.sync.data.BlazeDataStorage;
 import com.google.idea.blaze.base.sync.data.BlazeProjectDataManager;
 import com.google.idea.blaze.base.sync.libraries.BlazeLibraryCollector;
 import com.google.idea.blaze.base.sync.workspace.ArtifactLocationDecoder;
-import com.google.idea.blaze.java.settings.BlazeJavaUserSettings;
 import com.google.idea.blaze.java.sync.model.BlazeJarLibrary;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -84,14 +78,9 @@ public class JarCache {
     return ServiceManager.getService(project, JarCache.class);
   }
 
-  private static File getCacheDir(BlazeImportSettings importSettings) {
-    return new File(BlazeDataStorage.getProjectDataDir(importSettings), "libraries");
-  }
-
   private static final Logger logger = Logger.getInstance(JarCache.class);
 
   private final Project project;
-  private final File cacheDir;
 
   /** The state of the cache as of the last call to {@link #readFileState}. */
   private volatile ImmutableMap<String, File> cacheState = ImmutableMap.of();
@@ -99,10 +88,7 @@ public class JarCache {
   private boolean enabled;
 
   public JarCache(Project project) {
-    BlazeImportSettings importSettings =
-        BlazeImportSettingsManager.getInstance(project).getImportSettings();
     this.project = project;
-    this.cacheDir = getCacheDir(importSettings);
   }
 
   public boolean isEnabled() {
@@ -111,10 +97,7 @@ public class JarCache {
 
   private boolean updateEnabled() {
     // force-enable the jar cache if syncing remotely
-    this.enabled =
-        !ApplicationManager.getApplication().isUnitTestMode()
-            && (BlazeJavaUserSettings.getInstance().getUseJarCache()
-                || Blaze.getBuildSystemProvider(project).syncingRemotely());
+    this.enabled = JarCacheStateProvider.getInstance(project).isEnabled();
     return enabled;
   }
 
@@ -122,7 +105,9 @@ public class JarCache {
   private ImmutableMap<String, File> readFileState() {
     FileOperationProvider ops = FileOperationProvider.getInstance();
     File[] files =
-        cacheDir.listFiles((dir, name) -> ops.isFile(new File(dir, name)) && name.endsWith(".jar"));
+        JarCacheFolderProvider.getInstance(project)
+            .getJarCacheFolder()
+            .listFiles((dir, name) -> ops.isFile(new File(dir, name)) && name.endsWith(".jar"));
     ImmutableMap<String, File> cacheState =
         files == null
             ? ImmutableMap.of()
@@ -168,11 +153,12 @@ public class JarCache {
       return;
     }
     // Ensure the cache dir exists
-    if (!cacheDir.exists()) {
-      if (!cacheDir.mkdirs()) {
-        logger.error("Could not create jar cache directory");
-        return;
-      }
+    if (!JarCacheFolderProvider.getInstance(project).isJarCacheFolderReady()) {
+      logger.error(
+          String.format(
+              "Could not create jar cache directory %s",
+              JarCacheFolderProvider.getInstance(project).getJarCacheFolder().getPath()));
+      return;
     }
 
     ImmutableMap<String, BlazeArtifact> projectState =
@@ -276,10 +262,18 @@ public class JarCache {
                 FetchExecutor.EXECUTOR.submit(
                     () -> {
                       try {
-                        copyLocally(artifact, cacheFileForKey(key));
+                        copyLocally(
+                            artifact,
+                            JarCacheFolderProvider.getInstance(project).getCacheFileByKey(key));
                       } catch (IOException e) {
                         logger.warn(
-                            String.format("Fail to copy artifact %s to %s", artifact, cacheDir), e);
+                            String.format(
+                                "Fail to copy artifact %s to %s",
+                                artifact,
+                                JarCacheFolderProvider.getInstance(project)
+                                    .getJarCacheFolder()
+                                    .getPath()),
+                            e);
                       }
                     })));
     return futures;
@@ -315,13 +309,9 @@ public class JarCache {
         .collect(toImmutableList());
   }
 
-  private File cacheFileForKey(String key) {
-    return new File(cacheDir, key);
-  }
-
   private void clearCache(BlazeContext context, boolean blockOnCompletion) {
     cacheState = ImmutableMap.of();
-    File[] cacheFiles = cacheDir.listFiles();
+    File[] cacheFiles = JarCacheFolderProvider.getInstance(project).getJarCacheFolder().listFiles();
     if (cacheFiles == null) {
       return;
     }
